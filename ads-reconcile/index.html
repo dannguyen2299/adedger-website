@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="theme-color" content="#121e37" />
+  <title>AdLedger — Quản lý đối soát quảng cáo</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="https://accounts.google.com/gsi/client"></script>
+  <script defer src="config.js"></script>
+  <script defer src="core.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div id="loginScreen" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand-icon large">A<span>•</span></div>
+      <div class="eyebrow">AD OPERATIONS PLATFORM</div>
+      <h1>Quản lý quảng cáo<br/>rõ ràng đến từng đồng.</h1>
+      <p>Ngân sách, chi phí thực tế và đối soát nhiều khách hàng — tất cả trong một nơi.</p>
+      <div id="googleButton" class="google-button"></div>
+      <div id="loginNotice" class="muted small">Đăng nhập Google bằng tài khoản đã được cấp quyền.</div>
+      <button id="demoLoginBtn" class="btn btn-soft demo-btn">Khám phá giao diện bằng dữ liệu demo →</button>
+    </div>
+  </div>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-icon">A<span>•</span></div><div><strong>AdLedger</strong><small>AD SPEND MANAGER</small></div></div>
+      <div class="workspace"><span class="workspace-avatar">AM</span><div><span class="workspace-name">Không gian làm việc</span><small>Quản lý & đối soát</small></div><span class="chevron">⌄</span></div>
+      <div class="nav-label">TỔNG QUAN</div>
+      <nav id="mainNav" aria-label="Điều hướng chính">
+        <button class="nav-item active" data-page="dashboard"><span class="nav-icon">◫</span> Tổng quan</button>
+        <button class="nav-item" data-page="settlements"><span class="nav-icon">▤</span> Đối soát tuần</button>
+        <div class="nav-label inset">VẬN HÀNH</div>
+        <button class="nav-item" data-page="expenses"><span class="nav-icon">▧</span> Chi phí quảng cáo</button>
+        <button class="nav-item" data-page="payments"><span class="nav-icon">⇄</span> Thanh toán</button>
+        <button class="nav-item" data-page="campaigns"><span class="nav-icon">◎</span> Chiến dịch & ngân sách</button>
+        <div class="nav-label inset">DANH MỤC</div>
+        <button class="nav-item" data-page="clients"><span class="nav-icon">♙</span> Khách hàng</button>
+        <button class="nav-item" data-page="accounts"><span class="nav-icon">▣</span> Tài khoản quảng cáo</button>
+        <button class="nav-item" data-page="platforms"><span class="nav-icon">◈</span> Nền tảng</button>
+        <div class="nav-label inset" data-admin-only>HỆ THỐNG</div>
+        <button class="nav-item" data-page="users" data-admin-only><span class="nav-icon">♧</span> Tài khoản khách</button>
+        <button class="nav-item" data-page="settings" data-admin-only><span class="nav-icon">⚙</span> QR & ngân hàng</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="side-help"><span>✦</span><strong>Dữ liệu được đồng bộ</strong><small>Google Sheets + Apps Script</small></div><button id="logoutBtn" class="logout-btn">↪ &nbsp; Đăng xuất</button></div>
+    </aside>
+
+    <div class="main-area">
+      <header class="topbar"><div class="topbar-left"><button id="menuBtn" class="icon-btn menu-btn" aria-label="Mở menu">☰</button><span class="breadcrumb">QUẢN LÝ QUẢNG CÁO <span class="divider">/</span> <strong id="breadcrumbCurrent">Tổng quan</strong></span></div><div class="topbar-right"><span id="modeBadge" class="mode-badge">Dữ liệu Demo</span><button type="button" id="demoRoleBtn" class="btn btn-soft btn-small hidden">Xem như khách</button><span id="syncStatus" class="sync-status">● Sẵn sàng</span><button id="refreshBtn" class="icon-btn" title="Tải lại dữ liệu">↻</button><span class="user-avatar" id="userAvatar">AD</span></div></header>
+      <main class="content">
+        <div class="page-heading"><div><div class="eyebrow" id="pageEyebrow">BÁO CÁO VẬN HÀNH</div><h1 id="pageTitle">Tổng quan quảng cáo</h1><p id="pageDescription">Theo dõi hiệu suất ngân sách và đối soát của tất cả khách hàng.</p></div><div id="headingAction" class="heading-action"></div></div>
+        <div class="filter-bar"><div class="filter-group"><label for="clientFilter">Khách hàng</label><select id="clientFilter"></select></div><div class="filter-group"><label for="weekDate">Kỳ đối soát (Thứ Hai – Chủ Nhật)</label><div class="week-control"><button id="prevWeek" title="Tuần trước">‹</button><input type="date" id="weekDate"/><button id="nextWeek" title="Tuần sau">›</button></div></div><div id="weekLabel" class="week-chip"></div></div>
+        <div id="view"></div>
+        <footer class="footer">© <span id="currentYear"></span> AdLedger <span>•</span> Dữ liệu đối soát nội bộ <span>•</span> Múi giờ: GMT+7</footer>
+      </main>
+    </div>
+  </div>
+  <div id="overlay" class="overlay hidden" role="presentation"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><div><div class="eyebrow" id="modalEyebrow">QUẢN LÝ DỮ LIỆU</div><h2 id="modalTitle">Thêm mới</h2></div><button class="icon-btn" id="closeModal" aria-label="Đóng">✕</button></div><form id="entityForm"><div id="modalBody" class="modal-body"></div><div class="modal-actions"><button type="button" id="cancelModal" class="btn btn-soft">Hủy bỏ</button><button type="submit" class="btn btn-primary" id="saveModal">Lưu thông tin</button></div></form></div></div>
+  <div id="toast" role="status" class="toast hidden"></div>
+</body>
+</html>
