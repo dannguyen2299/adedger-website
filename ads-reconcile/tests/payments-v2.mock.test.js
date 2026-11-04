@@ -1,10 +1,11 @@
 /* Luồng V2: khách tự báo đã chuyển; CHỈ admin xác nhận nhận tiền. */
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const sv=v=>typeof v==='string'&&v.startsWith("'")?v.slice(1):v;
 class Sheet{
  constructor(){this.rows=[];} getLastRow(){return this.rows.length;} getLastColumn(){return Math.max(0,...this.rows.map(x=>x.length));}
- getRange(r,c,h,w){const sh=this;return {getDisplayValues(){return Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>String(sh.rows[r-1+i]?.[c-1+j]??'')));},setValues(values){values.forEach((row,i)=>{sh.rows[r-1+i]??=[];row.forEach((v,j)=>sh.rows[r-1+i][c-1+j]=v);});return this;},setFontWeight(){return this;},setFontColor(){return this;},setBackground(){return this;}};}
- appendRow(r){this.rows.push([...r])} deleteRow(index){this.rows.splice(index-1,1)} setFrozenRows(){} getDataRange(){return this.getRange(1,1,this.getLastRow(),this.getLastColumn())}
+ getRange(r,c,h,w){const sh=this;return {getValues(){return Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>sh.rows[r-1+i]?.[c-1+j]??''));},getDisplayValues(){return Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>String(sh.rows[r-1+i]?.[c-1+j]??'')));},setValues(values){values.forEach((row,i)=>{sh.rows[r-1+i]??=[];row.forEach((v,j)=>sh.rows[r-1+i][c-1+j]=sv(v));});return this;},setFontWeight(){return this;},setFontColor(){return this;},setBackground(){return this;}};}
+ appendRow(r){this.rows.push(r.map(sv))} deleteRow(index){this.rows.splice(index-1,1)} setFrozenRows(){} getDataRange(){return this.getRange(1,1,this.getLastRow(),this.getLastColumn())}
 }
 class Book{constructor(){this.tables=new Map;}getSheetByName(k){return this.tables.get(k)||null;}insertSheet(k){const sh=new Sheet;this.tables.set(k,sh);return sh;}setSpreadsheetTimeZone(){}}
 const book=new Book;let i=0;

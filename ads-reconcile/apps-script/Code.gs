@@ -30,7 +30,7 @@ function setupAdLedger() {
   const userSheet = ss.getSheetByName('Users');
   const users = sheetRows_(userSheet);
   if (owner && !users.some(u => u.email === owner)) {
-    userSheet.appendRow([owner, 'Chủ hệ thống', 'ADMIN', 'TRUE', '']);
+    userSheet.appendRow(textRow_([owner, 'Chủ hệ thống', 'ADMIN', 'TRUE', '']));
   }
   const platSheet = ss.getSheetByName('platforms');
   if (platSheet.getLastRow() === 1) {
@@ -92,18 +92,36 @@ function ensureSheet_(ss,name,headers){
   if(width<headers.length){sh.getRange(1,width+1,1,headers.length-width).setValues([headers.slice(width)]);sh.getRange(1,width+1,1,headers.length-width).setFontWeight('bold').setBackground('#192c49').setFontColor('#ffffff');}
   return sh;
 }
+// Đọc giá trị thô (không phụ thuộc định dạng hiển thị/locale của Sheet) rồi chuẩn hóa về chuỗi.
+function cellText_(v,tz){
+  if(v instanceof Date){
+    const time=Utilities.formatDate(v,tz,'HH:mm:ss');
+    return time==='00:00:00'?Utilities.formatDate(v,tz,'yyyy-MM-dd'):v.toISOString();
+  }
+  if(v===true||v===false)return v?'TRUE':'FALSE';
+  return v==null?'':String(v);
+}
+function sheetMatrix_(sh){
+  if(sh.getLastRow()<1)return [];
+  let tz='Asia/Ho_Chi_Minh';try{tz=sh.getParent().getSpreadsheetTimeZone()||tz;}catch(err){}
+  return sh.getRange(1,1,sh.getLastRow(),sh.getLastColumn()).getValues().map(row=>row.map(v=>cellText_(v,tz)));
+}
 function sheetRows_(sh){
   if(sh.getLastRow()<2)return [];
-  const count=sh.getLastColumn();const values=sh.getRange(1,1,sh.getLastRow(),count).getDisplayValues();const keys=values[0];
+  const values=sheetMatrix_(sh);const keys=values[0];
   return values.slice(1).filter(row=>row.some(x=>x!=='')).map(row=>Object.fromEntries(keys.map((k,i)=>[k,row[i]||''])));
 }
-function appendRecord_(sh,keys,record){sh.appendRow(keys.map(k=>asCell_(record[k])));}
-function asCell_(value){
+function appendRecord_(sh,keys,record){sh.appendRow(keys.map(k=>asCell_(record[k],k)));}
+const MONEY_KEYS_={opening_balance:1,daily_budget:1,amount:1,planned:1,spent:1,paid:1,opening:1,ending:1};
+function asCell_(value,key){
   const s=String(value==null?'':value);
-  // Chặn formula injection trong Google Sheet; các số tiền được đưa vào dạng số để SUM được.
-  if (/^-?\d+(\.\d+)?$/.test(s) && s!=='') return Number(s);
-  return /^[=+@\-\t\r]/.test(s) ? "'"+s : s;
+  if(s==='')return '';
+  // Chỉ cột tiền được ghi dạng số (để SUM được). Mọi cột khác ghi dạng chữ bằng dấu ' ở đầu:
+  // giữ số 0 đầu của SĐT/số tài khoản, không để Sheets tự đổi ngày/giờ, và chặn formula injection.
+  if(key && MONEY_KEYS_[key] && /^-?\d+(\.\d+)?$/.test(s))return Number(s);
+  return "'"+s;
 }
+function textRow_(values){return values.map(v=>asCell_(v));}
 function sha256_(token){return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,token,Utilities.Charset.UTF_8).map(b=>('0'+(b<0?b+256:b).toString(16)).slice(-2)).join('');}
 function verifyGoogle_(idToken){
   const clientId=PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID');
@@ -117,7 +135,13 @@ function verifyGoogle_(idToken){
   return String(info.email||'').trim().toLowerCase();
 }
 function user_(email){
-  return sheetRows_(spreadsheet_().getSheetByName('Users')).find(u=>u.email.toLowerCase()===email && String(u.active).toUpperCase()==='TRUE')||null;
+  // Chấp nhận dữ liệu nhập tay trong tab Users: thừa khoảng trắng, chữ thường, ô checkbox.
+  const u=sheetRows_(spreadsheet_().getSheetByName('Users')).map(x=>({...x,email:String(x.email).trim().toLowerCase(),role:String(x.role).trim().toUpperCase(),active:String(x.active).trim().toUpperCase(),client_id:String(x.client_id||'').trim()})).find(x=>x.email===email && x.active==='TRUE');
+  return u||null;
+}
+function pruneSessions_(){
+  const sh=spreadsheet_().getSheetByName('Sessions'),values=sheetMatrix_(sh),now=Date.now();
+  for(let i=values.length-1;i>=1;i--){const exp=Date.parse(values[i][2]);if(!exp||exp<now)sh.deleteRow(i+1);}
 }
 function login_(idToken){
   const email=verifyGoogle_(idToken);
@@ -126,14 +150,16 @@ function login_(idToken){
   if(!['ADMIN','EDITOR','VIEWER','CLIENT'].includes(user.role))throw appError_('NOT_ALLOWED','Vai trò người dùng không hợp lệ.');
   const token=Utilities.getUuid()+'.'+Utilities.getUuid()+'.'+Utilities.getUuid();
   const expires=new Date(Date.now()+ADL.SESSION_HOURS*3600000).toISOString();
-  spreadsheet_().getSheetByName('Sessions').appendRow([sha256_(token),email,expires,new Date().toISOString()]);
+  try{pruneSessions_();}catch(err){console.warn('Không dọn được phiên cũ: '+err);}
+  spreadsheet_().getSheetByName('Sessions').appendRow(textRow_([sha256_(token),email,expires,new Date().toISOString()]));
   return {session:token,expires:expires,me:{email:user.email,name:user.name,role:user.role,client_id:user.client_id||''}};
 }
 function authenticate_(token){
   if(!token||String(token).length>200)throw appError_('AUTH','Chưa đăng nhập hoặc phiên không hợp lệ.');
   const hash=sha256_(token);
   const session=sheetRows_(spreadsheet_().getSheetByName('Sessions')).find(s=>s.token_hash===hash);
-  if(!session || Date.parse(session.expires_at)<Date.now())throw appError_('AUTH','Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+  const exp=session?Date.parse(session.expires_at):NaN;
+  if(!session || !exp || exp<Date.now())throw appError_('AUTH','Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
   const u=user_(session.email.toLowerCase());if(!u)throw appError_('NOT_ALLOWED','Tài khoản của bạn đã bị khóa hoặc bị xóa.');
   if(u.role==='CLIENT' && (!u.client_id || !find_('clients',u.client_id)))throw appError_('NOT_ALLOWED','Tài khoản khách chưa được gắn khách hàng hợp lệ.');
   return {email:u.email,name:u.name,role:u.role,client_id:u.client_id||''};
@@ -160,7 +186,7 @@ function bootstrap_(user){
 }
 function logout_(token){
   const sh=spreadsheet_().getSheetByName('Sessions'),hash=sha256_(token);
-  const values=sh.getDataRange().getDisplayValues();
+  const values=sheetMatrix_(sh);
   for(let i=values.length-1;i>=1;i--)if(values[i][0]===hash){sh.deleteRow(i+1);break;}
   return {message:'Đã đăng xuất'};
 }
@@ -237,7 +263,7 @@ function mutate_(user,req){
   if(!lock.tryLock(20000))throw appError_('BUSY','Hệ thống đang ghi dữ liệu, vui lòng thử lại.');
   try {
     const ss=spreadsheet_(),sh=ss.getSheetByName(entity),keys=ADL.FIELDS[entity];
-    const values=sh.getDataRange().getDisplayValues();
+    const values=sheetMatrix_(sh);
     const index=values.findIndex((r,i)=>i>0&&r[0]===input.id),old=index>=0?Object.fromEntries(keys.map((k,i)=>[k,values[index][i]||''])):null;
     if(op==='delete'){
       if(!old)throw appError_('NOT_FOUND','Không tìm thấy dữ liệu để xóa');
@@ -268,7 +294,7 @@ function mutate_(user,req){
       } else rec.closed_at='';
     }
     rec.created_at=old?old.created_at:now;rec.updated_at=now;rec.created_by=old?old.created_by:user.email;
-    if(index>=0)sh.getRange(index+1,1,1,keys.length).setValues([keys.map(k=>asCell_(rec[k]))]);
+    if(index>=0)sh.getRange(index+1,1,1,keys.length).setValues([keys.map(k=>asCell_(rec[k],k))]);
     else appendRecord_(sh,keys,rec);
     audit_(user,old?'update':'create',entity,rec.id,old,rec);
     return {record:rec};
@@ -303,7 +329,7 @@ function periodCalcServer_(clientId,week){
 function audit_(user,operation,entity,recordId,before,after){
   const sh=spreadsheet_().getSheetByName('AuditLogs');
   const trunc=x=>JSON.stringify(x||{}).slice(0,25000);
-  sh.appendRow([new Date().toISOString(),user.email,operation,entity,recordId,trunc(before),trunc(after)]);
+  sh.appendRow(textRow_([new Date().toISOString(),user.email,operation,entity,recordId,trunc(before),trunc(after)]));
 }
 
 /** Dùng thủ công trong Script Editor nếu cần thu hồi toàn bộ phiên đăng nhập. */
@@ -343,7 +369,7 @@ function transitionPayment_(user,req,target){
     const old=rows[index];if(old.status!=='PENDING')throw appError_('INVALID','Chỉ xử lý giao dịch đang chờ xác nhận.');
     if(target==='CONFIRMED' && closedThisOrLater_(old.client_id,old.week_start))throw appError_('LOCKED','Kỳ đối soát đã chốt. Admin cần mở lại kỳ liên quan để xác nhận tiền vào số dư.');
     const rec={...old,status:target,updated_at:new Date().toISOString(),admin_confirmed_at:target==='CONFIRMED'?new Date().toISOString():'',confirmed_by:target==='CONFIRMED'?user.email:''};
-    sh.getRange(index+2,1,1,ADL.FIELDS.payments.length).setValues([ADL.FIELDS.payments.map(k=>asCell_(rec[k]))]);
+    sh.getRange(index+2,1,1,ADL.FIELDS.payments.length).setValues([ADL.FIELDS.payments.map(k=>asCell_(rec[k],k))]);
     audit_(user,target==='CONFIRMED'?'admin-received':'admin-rejected','payments',rec.id,old,rec);
     return {record:rec};
   }finally{lock.releaseLock();}
@@ -360,11 +386,11 @@ function manageUser_(user,req){
   if(role==='CLIENT'&&!exists_('clients',clientId))throw appError_('INVALID','Phải chọn khách hàng được phép xem.');
   const lock=LockService.getScriptLock();if(!lock.tryLock(20000))throw appError_('BUSY','Hệ thống đang bận.');
   try{
-    const sh=spreadsheet_().getSheetByName('Users'),users=sheetRows_(sh),idx=users.findIndex(x=>x.email.toLowerCase()===email),old=idx>=0?users[idx]:null;
+    const sh=spreadsheet_().getSheetByName('Users'),users=sheetRows_(sh),idx=users.findIndex(x=>String(x.email).trim().toLowerCase()===email),old=idx>=0?users[idx]:null;
     if(email===user.email && (role!=='ADMIN'||active!=='TRUE'))throw appError_('INVALID','Không thể tự khóa hoặc hạ quyền Admin đang đăng nhập.');
     const rec={email:email,name:String(input.name||'').trim().slice(0,120),role:role,active:active,client_id:clientId};
     const keys=ADL.INTERNAL.Users;
-    if(idx>=0)sh.getRange(idx+2,1,1,keys.length).setValues([keys.map(k=>asCell_(rec[k]))]);
+    if(idx>=0)sh.getRange(idx+2,1,1,keys.length).setValues([textRow_(keys.map(k=>rec[k]))]);
     else appendRecord_(sh,keys,rec);
     audit_(user,old?'user-update':'user-create','Users',email,old,rec);
     return {record:rec};
@@ -379,7 +405,7 @@ function paymentConfig_(){
   return conf;
 }
 function rowsConfig_(){return sheetRows_(spreadsheet_().getSheetByName('PaymentConfig'));}
-function putConfig_(key,value){const sh=spreadsheet_().getSheetByName('PaymentConfig'),data=rowsConfig_(),idx=data.findIndex(x=>x.key===key);if(idx>=0)sh.getRange(idx+2,1,1,2).setValues([[key,value]]);else sh.appendRow([key,value]);}
+function putConfig_(key,value){const sh=spreadsheet_().getSheetByName('PaymentConfig'),data=rowsConfig_(),idx=data.findIndex(x=>x.key===key);if(idx>=0)sh.getRange(idx+2,1,1,2).setValues([textRow_([key,value])]);else sh.appendRow(textRow_([key,value]));}
 function savePaymentConfig_(user,req){
   requireRole_(user,['ADMIN']);const input=req.record||{};
   const fields=['bank_name','account_name','account_number','transfer_note'];

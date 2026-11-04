@@ -4,18 +4,20 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const crypto=require('node:crypto');
+const sv=v=>typeof v==='string'&&v.startsWith("'")?v.slice(1):v;
 class FakeSheet {
  constructor(name){this.name=name;this.data=[];}
  getLastRow(){return this.data.length;}
  getLastColumn(){return Math.max(0,...this.data.map(x=>x.length));}
  getDataRange(){return this.getRange(1,1,this.getLastRow(),this.getLastColumn());}
  getRange(r,c,rows,cols){const self=this;return {
+  getValues(){const out=[];for(let i=0;i<rows;i++){const line=self.data[r-1+i]||[];out.push(Array.from({length:cols},(_,j)=>line[c-1+j]??''));}return out;},
   getDisplayValues(){const out=[];for(let i=0;i<rows;i++){const line=self.data[r-1+i]||[];out.push(Array.from({length:cols},(_,j)=>String(line[c-1+j]??'')));}return out;},
-  setValues(values){values.forEach((line,i)=>{const row=self.data[r-1+i]||[];line.forEach((v,j)=>row[c-1+j]=v);self.data[r-1+i]=row;});return this;},
+  setValues(values){values.forEach((line,i)=>{const row=self.data[r-1+i]||[];line.forEach((v,j)=>row[c-1+j]=sv(v));self.data[r-1+i]=row;});return this;},
   setFontWeight(){return this;},setBackground(){return this;},setFontColor(){return this;}
  };}
  setFrozenRows(){}
- appendRow(values){this.data.push([...values]);}
+ appendRow(values){this.data.push(values.map(sv));}
  deleteRow(r){this.data.splice(r-1,1);}
 }
 class FakeBook{
@@ -62,4 +64,14 @@ assert.equal(call('rows_','campaigns').length,2);
 put('closings',{id:'CLOSE',client_id:'A',week_start:'2026-10-19',status:'OPEN'});
 put('expenses',{id:'EX',campaign_id:'CAM',date:'2026-10-20',amount:'600000'});
 assert.equal(call('periodCalcServer_','A','2026-10-19').ending,100000);
+// Cột chữ không bị Sheets đổi kiểu: giữ số 0 đầu SĐT, ngày dạng chuỗi; cột tiền ghi dạng số.
+put('clients',{id:'B',name:'Khách B',phone:'0912345678',opening_balance:'-150000',active:'TRUE'});
+const rawB=ss.getSheetByName('clients').data.find(r=>r[0]==='B');
+assert.equal(rawB[3],'0912345678');assert.equal(rawB[4],-150000);
+assert.equal(call('find_','clients','B').phone,'0912345678');
+assert.equal(typeof ss.getSheetByName('expenses').data[1][2],'string');
+// Tab Users nhập tay: chữ thường, khoảng trắng, checkbox TRUE (boolean).
+ss.getSheetByName('Users').data.push([' Khach@Example.com ','Khách','client',true,'B']);
+const u=call('user_','khach@example.com');
+assert.equal(u.role,'CLIENT');assert.equal(u.client_id,'B');
 console.log('OK: Backend fake Sheets CRUD, xác minh số liệu, khóa/mở kỳ và ngăn sửa hồi tố.');
