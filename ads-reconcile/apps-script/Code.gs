@@ -222,8 +222,10 @@ function validate_(entity,rec,old){
       if(old.client_id!==rec.client_id && rows_('expenses').some(e=>e.campaign_id===rec.id))throw appError_('LOCKED','Không đổi khách hàng của chiến dịch đã phát sinh chi phí.');
       const changed=['daily_budget','start_date','end_date','client_id','status','platform_id','account_id'].some(k=>String(old[k]||'')!==String(rec[k]||''));
       if((old.platform_id!==rec.platform_id||old.account_id!==rec.account_id) && rows_('expenses').some(e=>e.campaign_id===rec.id))throw appError_('LOCKED','Không đổi tài khoản hoặc nền tảng của chiến dịch đã phát sinh chi phí.');
-      if(changed&&rows_('closings').some(c=>c.status==='CONFIRMED' && (c.client_id===old.client_id && campaignTouchesWeek_(old,c.week_start) || c.client_id===rec.client_id && campaignTouchesWeek_(rec,c.week_start))))throw appError_('LOCKED','Chiến dịch thuộc kỳ đã chốt. Hãy mở kỳ liên quan trước khi sửa.');
-    } else if(rows_('closings').some(c=>c.client_id===rec.client_id && c.status==='CONFIRMED' && campaignTouchesWeek_(rec,c.week_start))) {
+      // Chỉ chặn khi thay đổi làm lệch ngân sách dự kiến của một kỳ ĐÃ CHỐT. Kết thúc/tạm dừng chiến dịch từ kỳ đang mở vẫn được phép.
+      const contribution=(c,cl)=>c.client_id===cl.client_id?plannedServer_(c,cl.week_start):0;
+      if(changed&&rows_('closings').some(cl=>cl.status==='CONFIRMED' && contribution(old,cl)!==contribution(rec,cl)))throw appError_('LOCKED','Thay đổi này làm lệch ngân sách của kỳ đã chốt. Muốn đổi ngân sách/ngày: đặt ngày kết thúc cho chiến dịch cũ rồi tạo chiến dịch mới từ kỳ đang mở, hoặc mở lại kỳ liên quan.');
+    } else if(rows_('closings').some(c=>c.client_id===rec.client_id && c.status==='CONFIRMED' && plannedServer_(rec,c.week_start)>0)) {
       throw appError_('LOCKED','Không tạo chiến dịch hồi tố vào kỳ đã chốt.');
     }
   }
@@ -231,6 +233,7 @@ function validate_(entity,rec,old){
     if(!isDate_(rec.date))throw appError_('INVALID','Ngày chi phí không hợp lệ.');
     validateMoney_(rec.amount,'Chi phí');
     const cp=find_('campaigns',rec.campaign_id);if(!cp)throw appError_('INVALID','Chiến dịch không tồn tại.');
+    if(rec.date<cp.start_date||(cp.end_date&&rec.date>cp.end_date))throw appError_('INVALID','Ngày chi phí nằm ngoài thời gian chạy của chiến dịch ('+cp.start_date+(cp.end_date?' → '+cp.end_date:' → nay')+'). Kiểm tra lại ngày hoặc sửa thời gian chiến dịch.');
     if(closedThisOrLater_(cp.client_id,rec.date))throw appError_('LOCKED','Kỳ này hoặc kỳ sau đã chốt. Hãy mở lại các kỳ liên quan trước khi chỉnh sửa.');
     if(old){const oldCp=find_('campaigns',old.campaign_id);if(oldCp&&closedThisOrLater_(oldCp.client_id,old.date))throw appError_('LOCKED','Kỳ đối soát trước khi sửa đã chốt.');}
   }
@@ -302,6 +305,7 @@ function mutate_(user,req){
 }
 function blockDelete_(entity,old){
   const links={clients:[['accounts','client_id'],['campaigns','client_id'],['payments','client_id'],['closings','client_id']],platforms:[['accounts','platform_id'],['campaigns','platform_id']],accounts:[['campaigns','account_id']],campaigns:[['expenses','campaign_id']]};
+  if(entity==='clients'&&rows_('Users').some(u=>String(u.client_id).trim()===old.id))throw appError_('REFERENCED','Khách hàng đang có tài khoản đăng nhập. Hãy khóa hoặc đổi tài khoản trong mục Tài khoản khách trước.');
   for(const link of links[entity]||[])if(rows_(link[0]).some(x=>x[link[1]]===old.id))throw appError_('REFERENCED','Dữ liệu đã được sử dụng. Vui lòng chuyển trạng thái tạm ẩn thay vì xóa.');
   if(entity==='campaigns' && rows_('closings').some(c=>c.client_id===old.client_id && c.status==='CONFIRMED' && campaignTouchesWeek_(old,c.week_start)))throw appError_('LOCKED','Không xóa chiến dịch thuộc kỳ đã chốt.');
 }

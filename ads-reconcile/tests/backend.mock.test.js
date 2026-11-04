@@ -58,7 +58,7 @@ assert.equal(close.ending,'200000');
 assert.equal(close.status,'CONFIRMED');
 assert.throws(()=>put('expenses',{id:'EX',campaign_id:'CAM',date:'2026-10-20',amount:'800000'}),/Kỳ này hoặc kỳ sau đã chốt/);
 assert.throws(()=>put('payments',{id:'NEW',client_id:'A',week_start:'2026-10-19',date:'2026-10-27',type:'RECEIVE',amount:'1'}),/Kỳ đối soát đã chốt/);
-assert.throws(()=>put('campaigns',{id:'CAM',name:'Campaign',client_id:'A',platform_id:pf.id,account_id:'ACC',daily_budget:'200000',start_date:'2026-10-19',end_date:'2026-10-25',status:'ACTIVE'}),/Chiến dịch thuộc kỳ đã chốt/);
+assert.throws(()=>put('campaigns',{id:'CAM',name:'Campaign',client_id:'A',platform_id:pf.id,account_id:'ACC',daily_budget:'200000',start_date:'2026-10-19',end_date:'2026-10-25',status:'ACTIVE'}),/lệch ngân sách của kỳ đã chốt/);
 put('campaigns',{id:'FUTURE',name:'New campaign',client_id:'A',platform_id:pf.id,account_id:'ACC',daily_budget:'100000',start_date:'2026-11-02',end_date:'',status:'ACTIVE'});
 assert.equal(call('rows_','campaigns').length,2);
 put('closings',{id:'CLOSE',client_id:'A',week_start:'2026-10-19',status:'OPEN'});
@@ -74,4 +74,17 @@ assert.equal(typeof ss.getSheetByName('expenses').data[1][2],'string');
 ss.getSheetByName('Users').data.push([' Khach@Example.com ','Khách','client',true,'B']);
 const u=call('user_','khach@example.com');
 assert.equal(u.role,'CLIENT');assert.equal(u.client_id,'B');
+// Chiến dịch chạy dài: sau khi chốt tuần đầu vẫn kết thúc / tạm dừng được; đổi ngân sách hoặc dời ngày vào kỳ đã chốt thì bị chặn.
+put('clients',{id:'C',name:'Khách C',opening_balance:'0',active:'TRUE'});
+put('accounts',{id:'ACCC',name:'Via C',client_id:'C',platform_id:pf.id,owner:'OWN',active:'TRUE'});
+const L={id:'LONG',name:'Long',client_id:'C',platform_id:pf.id,account_id:'ACCC',daily_budget:'100000',start_date:'2026-10-19',end_date:'',status:'ACTIVE'};
+put('campaigns',L);put('closings',{id:'CLC',client_id:'C',week_start:'2026-10-19',status:'CONFIRMED'});
+put('campaigns',{...L,status:'PAUSED'});
+put('campaigns',{...L,status:'PAUSED',end_date:'2026-11-08'});
+assert.throws(()=>put('campaigns',{...L,daily_budget:'200000'}),/lệch ngân sách của kỳ đã chốt/);
+assert.throws(()=>put('campaigns',{...L,start_date:'2026-10-22'}),/lệch ngân sách của kỳ đã chốt/);
+assert.throws(()=>put('campaigns',{id:'RETRO',name:'Retro',client_id:'C',platform_id:pf.id,account_id:'ACCC',daily_budget:'1',start_date:'2026-10-20',end_date:'',status:'ACTIVE'}),/hồi tố/);
+assert.throws(()=>put('expenses',{id:'TYPO',campaign_id:'LONG',date:'2027-10-20',amount:'1000'}),/ngoài thời gian chạy/);
+// Không xóa khách hàng còn tài khoản đăng nhập.
+assert.throws(()=>call('mutate_',user,{entity:'clients',op:'delete',record:{id:'B'}}),/tài khoản đăng nhập/);
 console.log('OK: Backend fake Sheets CRUD, xác minh số liệu, khóa/mở kỳ và ngăn sửa hồi tố.');
